@@ -27,3 +27,16 @@ func NewBackend(name string) (Backend, error) {
 		return nil, fmt.Errorf("unsupported backend: %s", name)
 	}
 }
+
+// NewBackendForConfig constructs the backend selected by config.yaml; the
+// libvirt backend needs the config itself (disk image, network, node env).
+func NewBackendForConfig(conf *config.Config) (Backend, error) {
+	switch conf.BackendType {
+	case "vagrant":
+		return NewBackend("vagrant")
+	case "libvirt":
+		return backends.NewLibvirtBackend(conf)
+	default:
+		return nil, fmt.Errorf("unsupported backend: %s", conf.BackendType)
+	}
+}

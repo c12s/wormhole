@@ -1,0 +1,26 @@
+# Plain bootc node. No libvirt, no nested VMs: this is the direct-management
+# node. The VM host lives in config.libvirt.yaml.
+vmCount: 1
+cpus: 2
+memory: 2048
+nameBase: "host"
+backendType: "libvirt"
+diskImage: "~/.wormhole/images/edge-base-v4.0.qcow2"
+network: "default"
+osVariant: "fedora-unknown"   # newest Fedora libvirt knows; only picks virtual hardware
+uefi: true
+# plain node: hide AMD-V/VT-x so it has no /dev/kvm and star does not report
+# run_vms (virt-install's default host-passthrough would expose them)
+cpuModel: "host-passthrough,disable=svm,disable=vmx"
+stateDir: "~/.wormhole/libvirt"
+# control-plane addresses ship in the OS image (/usr/lib/c12s/node.env);
+# set natsAddress only to override them for these nodes
+# natsAddress: "192.168.122.1:4222"
+ipBase: "192.168.122."
+ipOffset: 50                         # first VM -> 192.168.122.51
+# login user cloud-init creates (omit the block for the default:
+# user c12s, password c12s, keys from ~/.ssh/id_*.pub)
+# login:
+#   user: c12s
+#   password: ""                        # "" = no password login, ssh keys only
+#   sshKeys: ["~/.ssh/id_ed25519.pub"]  # .pub files or literal keys

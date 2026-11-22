@@ -6,7 +6,6 @@ import (
 
 	"github.com/c12s/wormhole/aliases"
 	"github.com/c12s/wormhole/constants"
-	"github.com/c12s/wormhole/internal/core"
 	"github.com/spf13/cobra"
 )
 
@@ -16,13 +15,9 @@ var ShutDownCmd = &cobra.Command{
 	Short:   constants.ShortShutDownDesc,
 	Long:    constants.LongShutDownDesc,
 	Run: func(cmd *cobra.Command, args []string) {
-		backend, err := core.NewBackend("vagrant")
-		if err != nil {
-			fmt.Println("Error:", err)
-			os.Exit(1)
-		}
+		backend, _ := backendFromConfig(configFile)
 
-		err = backend.ShutDown(args...)
+		err := backend.ShutDown(args...)
 		if err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)

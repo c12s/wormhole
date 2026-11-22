@@ -29,7 +29,7 @@ var SetupCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		backend, err := core.NewBackend(conf.BackendType)
+		backend, err := core.NewBackendForConfig(conf)
 		if err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)

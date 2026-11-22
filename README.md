@@ -1,86 +1,79 @@
-# Wormhole CLI Documentation
-Tool for starting local development with VM-s running agents etc. and control plane communicating with with nodes.
-## Features
-- VM lifecycle management: setup, create, stop, resume, reload, shutdown, destroy
-- Node management: start-nodes, stop-nodes
-## Prerequisites
-Ensure you have the following installed: 
-- [Go](https://go.dev/doc/install) (version 1.16 or higher)
-- [Git](https://git-scm.com/install/)
-- [Docker](https://docs.docker.com/engine/install/) (for running the complete environment)
-- [Vagrant](https://developer.hashicorp.com/vagrant/docs/installation)
-- [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
-Additionally, you need to clone and set up the tools repository from [https://github.com/c12s/tools](https://github.com/c12s/tools), which includes scripts to pull all other repositories and start Docker containers.
-## Installation
-1. Clone the tools repository: 
+# wormhole — local VM provisioning CLI
+
+Turns a qcow2 bootc disk into running machines: creates libvirt VMs with
+a NoCloud seed that writes the per-node `/var/lib/c12s/node.env`, then lets the VMs boot
+and enroll into the control plane by themselves. A **local development tool** —
+it is not part of the control plane's delivery path: first install happens
+outside the control plane, which takes over once a node has booted.
+
+## Role in c12s
+
+| Task | How |
+|---|---|
+| Plain bootc node | `wormhole -c config.host.yaml create` — a plain bootc node; no libvirt, no nested VMs |
+| Node with libvirt capability (VM host) | `wormhole -c config.libvirt.yaml create` — runs the VM reconciler and its own nested VMs |
+| Legacy Vagrant nodes | `backendType: "vagrant"` — plain Ubuntu+Docker VMs; **no bootc** (no OS updates) |
+| Provisioning data | NoCloud seed: `/var/lib/c12s/node.env` (per-node values only; the CP addresses ship in the image at `/usr/lib/c12s/node.env`), optional guest-side libvirt network XML, login user from the config's `login` block (default `c12s`/`c12s` plus your `~/.ssh/id_*.pub`) |
+
+VMs created this way are ordinary c12s nodes: from the control plane's point
+of view nothing distinguishes them from hand-provisioned hardware.
+
+## Example configs
+
+| file | VMs | addresses |
+|------|-----|-----------|
+| `config.host.yaml` | one plain bootc node | `ipBase` + `ipOffset` 50 + n |
+| `config.libvirt.yaml` | VM hosts (libvirt capability, run the VM reconciler) | `ipBase` + `ipOffset` 60 + n |
+
+- `diskImage` is a local file. Fetch the current disk from the disk
+  registry first, e.g. `curl -o ~/.wormhole/images/edge-base-v1.0.qcow2
+  <disk-registry>/artifacts/edge-base-v1.0.qcow2` — wormhole never downloads
+  it, so an old copy silently installs an old OS.
+- Build `diskImage` with Supernova's `BuildQCOW2` (`cockpit image build
+  qcow2`) from an image that keeps greenboot's GRUB snippet: without it on
+  `/boot`, and a failing update then reboots forever instead
+  of rolling back.
+- VM names are `<nameBase>-<n>`; the address is `ipBase + ipOffset + n` and
+  the MAC is derived from it. Keep `ipOffset` ranges disjoint across configs —
+  `create` refuses an address another VM in the state dir already holds.
+- Domains live in `qemu:///system`. Plain `virsh` as a normal user talks to
+  `qemu:///session` and shows nothing — use `virsh -c qemu:///system ...`.
+
+## Build and usage
+
 ```bash
-git clone https://github.com/c12s/tools.git
+go build -o wormhole .
+
+wormhole -c config.host.yaml create            # no names = every VM in the config
+wormhole -c config.host.yaml create <name>     # one VM
+wormhole -c config.host.yaml destroy <name>    # delete VM + all its data
 ```
-2. Navigate to the tools directory and follow the setup instructions in the README.md file of the tools repository to pull all necessary repositories and start Docker containers:
-```bash
-cd tools
-./install.sh
-./control_plane_start.sh
-```
-3. Clone the cockpit repository in the same parent directory where the tools repository is located:
-```bash
-cd ..
-git clone https://github.com/radepejanvic/wormhole.git
-```
-4. Navigate to the cockpit project directory:
-```bash
-cd wormhole
-```
-5. Build the CLI: 
-```bash
-go build -o wormhole
-```
-6. Add the executable to your PATH:
-```bash
-export PATH=$PATH:$(pwd)
-```
-## Command reference
-### VM lifecycle management
-Setup - reads the YAML and generates Vagrantfile
-```bash
-wormhole setup --config ./config.yaml
-```
-Create - creates VMs (one, more or all if nothing specified)
-```bash 
-wormhole create 
-wormhole create node0
-```
-Stop - suspends VMs (one, more or all if nothing specified)
-```bash
-wormhole stop
-wormhole stop node0
-```
-Resume - resumes VMs (one, more or all if nothing specified)
-```bash 
-wormhole resume
-wormhole resume node0
-```
-Reload - recreates VM reading Vagrantfile again (one, more or all if nothing specified)
-```bash
-wormhole reload
-wormhole reload node0
-```
-Shutdown - gracefully powers off VMs (one, more or all if nothing specified)
-```bash
-wormhole shutdown
-wormhole shutdown node0
-```
-Destroy - deletes VMs and all of their data (one, more or all if nothing specified)
-```
-wormhole destroy
-wormhole destroy node0 
-```
-### Node management
-Start nodes - runs the `/vagrant/node_start.sh` remotely for specified VMs
-```bash 
-wormhole start-nodes node0 node1
-```
-Stop nodes - runs the `/vagrant/nodes_stop.sh` remotely for specified VMs
-```bash
-wormhole stop-nodes node0 node1
-```
+
+`--config/-c` defaults to `config.yaml`. All lifecycle commands accept VM
+names; without them they act on **all** VMs from the config:
+
+| Command | Effect |
+|---|---|
+| `create` | create VM(s); skips ones that already exist (safe to re-run) |
+| `stop` / `resume` | suspend / resume (libvirt backend: domain save/restore semantics) |
+| `shutdown` | graceful power-off |
+| `reload` | recreate from config (Vagrant backend: re-reads the Vagrantfile) |
+| `destroy` | delete VM and its disks |
+| `setup` | Vagrant-only: generate the Vagrantfile from YAML |
+| `start-nodes` / `stop-nodes` | run `/vagrant/node_start.sh` / `node_stop.sh` inside Vagrant VMs |
+
+Requirements for the libvirt backend: `virt-install`, `virsh`, `qemu-img`,
+`xorriso`, and a user in the `libvirt` group.
+
+## Configuration (libvirt backend)
+
+All fields in the YAML (`internal/config`): `vmCount`, `cpus`, `memory`,
+`nameBase`, `backendType`, `diskImage`, `network`, `osVariant`, `uefi`,
+`cpuModel` (`host-passthrough` needed for nested KVM), `stateDir`,
+`natsAddress` (optional override of the image's NATS address), `ipBase`, `ipOffset`, `vmNetwork` /
+`vmIpBase` (guest-side network for VMs the node will host), `extras`
+(extra per-node `node.env` pairs), `login` (the user the seed creates:
+`user`, `password` — `""` disables password login —, `sshKeys` as `.pub`
+paths or literal keys; without the block: `c12s`/`c12s` plus your
+`~/.ssh/id_*.pub`). Neither a password nor a key is rejected before any VM is
+created.

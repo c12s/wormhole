@@ -43,3 +43,6 @@ go.work
 
 commands.md
 Vagrantfile
+
+# built binary (go build .)
+/wormhole
